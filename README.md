@@ -1,4 +1,4 @@
-# YouTube Business Idea Scanner
+# YouTube Scanner
 
 A simple script to scan a YouTube channel for videos, fetch available transcripts, and extract a short business idea per video using an LLM.
 
