@@ -36,6 +36,14 @@ A simple script to scan a YouTube channel for videos, fetch available transcript
 - Update config.yml
 
 
+## Run
+
+```
+python scan_channels.py ALL
+python scan_channels.py task_name
+```
+
+
 ## License
 
 MIT, please respect youtibe terms of use

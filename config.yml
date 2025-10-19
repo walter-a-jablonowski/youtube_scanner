@@ -4,27 +4,14 @@ llm:
   model:    gemini-2.5-flash
   # model:  gemini-2.5-flash-lite
 
-youtube:
-
-  channel_url: https://www.youtube.com/@starterstory/videos
-  # If you want to use the YouTube Data API in second script
-  # use_api: false
-  # api_key: ""
-  # api_key_env: YT_API_KEY
+# youtube:
+# 
+#   # If you want to use the YouTube Data API in second script
+#   use_api: false
+#   api_key: ""
+#   api_key_env: YT_API_KEY
 
 run:
 
   debug: true
-  use_ytdlp_fallback: true   # or will use YouTubeTranscriptApi
-
-  prompt: |
-    Summarize the main business idea mentioned in this YouTube transcript.
-    Respond with only a few words (max 8 words).
-    Transcript:
-
-    {transcript}
-
-  output_file:         starterstory_ideas.csv
-  max_videos:          1     # per run
-  skip_processed:      true  # kkip videos already present in the output CSV
-  polite_delay_sec:    1     # polite delay between requests (seconds)
+  use_ytdlp_fallback: true   # use yt-dlp discovery; transcripts via API or yt-dlp

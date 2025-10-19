@@ -6,6 +6,7 @@ import glob
 import shutil
 import tempfile
 import yaml
+import sys
 from youtube_transcript_api import YouTubeTranscriptApi, TranscriptsDisabled, NoTranscriptFound, CouldNotRetrieveTranscript
 import google.generativeai as genai
 
@@ -26,14 +27,24 @@ try:
 except Exception:
   keys = {}
 
-CHANNEL_URL     = cfg["youtube"]["channel_url"]
-OUTPUT_FILE     = cfg["run"]["output_file"]
-MAX_VIDEOS      = int(cfg["run"]["max_videos"])
-SKIP_PROCESSED  = bool(cfg["run"]["skip_processed"])
-POLITE_DELAY    = int(cfg["run"]["polite_delay_sec"]) 
 DEBUG_MODE      = bool(cfg["run"]["debug"]) 
 USE_YTDLP       = bool(cfg["run"]["use_ytdlp_fallback"]) 
-PROMPT_TEMPLATE = cfg["run"]["prompt"]
+
+# Globals configured per-task at runtime
+PROMPT_TEMPLATE = None
+OUTPUT_FILE     = None
+MAX_VIDEOS      = None
+SKIP_PROCESSED  = None
+POLITE_DELAY    = None
+
+def load_task_file(task_path):
+  try:
+    with open(task_path, "r", encoding="utf-8") as tf:
+      return yaml.safe_load(tf) or {}
+  except Exception as e:
+    if DEBUG_MODE:
+      print(f"[debug] Error loading task file: {e}")
+    return None
 
 LLM_PROVIDER = cfg["llm"]["provider"].lower()
 LLM_MODEL    = cfg["llm"]["model"]
@@ -52,7 +63,7 @@ else:
   raise SystemExit(f"❌ Unsupported LLM provider: {LLM_PROVIDER}")
 
 # === FUNCTIONS ===
-def fetch_video_ids_via_ytdlp(limit=100):
+def fetch_video_ids_via_ytdlp(limit=100, channel_url=None, channel_label=None):
   """Use yt-dlp to extract videos with minimal metadata. Requires yt-dlp.
 
   Returns a list of dicts: {id, upload_date, timestamp, channel}
@@ -61,10 +72,11 @@ def fetch_video_ids_via_ytdlp(limit=100):
     if DEBUG_MODE:
       print("[debug] yt-dlp not installed; cannot use fallback")
     return []
-  urls_to_try = [CHANNEL_URL]
+  base_url = channel_url
+  urls_to_try = [base_url]
   # try both handle page and without /videos
-  if CHANNEL_URL.endswith('/videos'):
-    urls_to_try.append(CHANNEL_URL.rsplit('/videos', 1)[0])
+  if base_url.endswith('/videos'):
+    urls_to_try.append(base_url.rsplit('/videos', 1)[0])
   ydl_opts = {
     'quiet': True,
     'skip_download': True,
@@ -106,6 +118,8 @@ def fetch_video_ids_via_ytdlp(limit=100):
               if DEBUG_MODE:
                 print(f"[debug] enrich failed for {vid}: {ve}")
               pass
+          if not item['channel'] and channel_label:
+            item['channel'] = channel_label
           items.append(item)
           if len(items) >= limit:
             break
@@ -250,7 +264,7 @@ def get_transcript_via_ytdlp(video_id):
     except Exception:
       pass
 
-def extract_business_idea(transcript):
+def extract_summary(transcript):
   """Extract short business idea (2–8 words) using Gemini."""
   if "{transcript}" in PROMPT_TEMPLATE:
     prompt = PROMPT_TEMPLATE.replace("{transcript}", transcript)
@@ -264,23 +278,44 @@ def extract_business_idea(transcript):
     return None
 
 # === MAIN ===
-def main():
-  # Prefer yt-dlp discovery if enabled
-  video_ids = []
+def process_task(task, task_name):
+  global PROMPT_TEMPLATE, OUTPUT_FILE, MAX_VIDEOS, SKIP_PROCESSED, POLITE_DELAY
+  # Configure per-task settings (required)
+  PROMPT_TEMPLATE = task["prompt"]
+  OUTPUT_FILE     = task["output_file"]
+  MAX_VIDEOS      = int(task["max_videos"]) 
+  SKIP_PROCESSED  = bool(task["skip_processed"]) 
+  POLITE_DELAY    = int(task["polite_delay_sec"]) 
+
+  # Build channels from task
+  CHANNELS = []  # list of (label, url)
+  for label, data in (task.get("channels") or {}).items():
+    url = (data or {}).get("url")
+    if url:
+      CHANNELS.append((label, url))
+  if not CHANNELS:
+    print(f"❌ Task '{task_name}' has no channels configured.")
+    return
+
+  # Discover videos across channels
+  all_items = []
   if USE_YTDLP:
     if yt_dlp is None and DEBUG_MODE:
       print("[debug] yt-dlp is not installed; cannot use yt-dlp discovery")
     else:
-      if DEBUG_MODE:
-        print("[debug] Trying yt-dlp discovery first…")
-      video_ids = fetch_video_ids_via_ytdlp(MAX_VIDEOS)
-      if DEBUG_MODE:
-        print(f"[debug] yt-dlp discovery collected {len(video_ids)} IDs")
-  if not video_ids:
+      for label, url in CHANNELS:
+        if DEBUG_MODE:
+          print(f"[debug] Discovering channel {label}: {url}")
+        items = fetch_video_ids_via_ytdlp(MAX_VIDEOS, channel_url=url, channel_label=label)
+        if DEBUG_MODE:
+          print(f"[debug] {label}: collected {len(items)} IDs")
+        all_items.extend(items)
+  if not all_items:
     print("🔎 Found 0 videos via yt-dlp. Enable run.debug for details.")
-    print("❌ No videos to process. Exiting.")
+    print(f"❌ No videos to process for task '{task_name}'.")
     return
 
+  # Read existing processed URLs
   processed_urls = set()
   if SKIP_PROCESSED and os.path.exists(OUTPUT_FILE):
     try:
@@ -289,10 +324,11 @@ def main():
         next(reader, None)
         for row in reader:
           if row:
-            processed_urls.add(row[0])
+            processed_urls.add(row[3])  # Video URL column
     except Exception:
       processed_urls = set()
 
+  # Header setup
   file_exists = os.path.exists(OUTPUT_FILE)
   file_empty = False
   if file_exists:
@@ -304,7 +340,6 @@ def main():
   def _format_time(item):
     try:
       if item.get('timestamp'):
-        # seconds since epoch -> YYYY-MM-DD HH:MM
         return time.strftime("%Y-%m-%d %H:%M", time.gmtime(int(item['timestamp'])))
       d = item.get('upload_date')
       if d and len(d) == 8:
@@ -313,14 +348,22 @@ def main():
       pass
     return ""
 
+  # Ensure output directory exists
+  out_dir = os.path.dirname(OUTPUT_FILE)
+  if out_dir:
+    try:
+      os.makedirs(out_dir, exist_ok=True)
+    except Exception:
+      pass
+
   with open(OUTPUT_FILE, "a", newline="", encoding="utf-8") as f:
     writer = csv.writer(f)
     if not file_exists or file_empty:
       writer.writerow(["Time", "Channel", "Summary", "Video URL"])
 
-    total = len(video_ids)
-    for i, item in enumerate(video_ids, 1):
-      vid = item['id'] if isinstance(item, dict) else item
+    total = len(all_items)
+    for i, item in enumerate(all_items, 1):
+      vid = item['id']
       url = f"https://www.youtube.com/watch?v={vid}"
       if url in processed_urls:
         print(f"\n[{i}/{total}] Skipping already processed {url}")
@@ -330,29 +373,61 @@ def main():
       transcript = get_transcript(vid)
       if not transcript:
         print("  ❌ No transcript found, writing n/a.")
-        time_str = _format_time(item) if isinstance(item, dict) else ""
-        channel_name = (item.get('channel') or "") if isinstance(item, dict) else ""
-        writer.writerow([time_str, channel_name, "n/a", url])  # mark as processed with n/a
+        time_str = _format_time(item)
+        channel_name = item.get('channel') or ""
+        writer.writerow([time_str, channel_name, "n/a", url])
         time.sleep(POLITE_DELAY)
         continue
 
-      idea = extract_business_idea(transcript)
+      idea = extract_summary(transcript)
       if not idea:
         print("  ⚠️ No idea extracted, writing n/a.")
-        time_str = _format_time(item) if isinstance(item, dict) else ""
-        channel_name = (item.get('channel') or "") if isinstance(item, dict) else ""
-        writer.writerow([time_str, channel_name, "n/a", url])  # mark as processed with n/a
+        time_str = _format_time(item)
+        channel_name = item.get('channel') or ""
+        writer.writerow([time_str, channel_name, "n/a", url])
         time.sleep(POLITE_DELAY)
         continue
 
       print(f"  ✅ Idea: {idea}")
-      time_str = _format_time(item) if isinstance(item, dict) else ""
-      channel_name = (item.get('channel') or "") if isinstance(item, dict) else ""
+      time_str = _format_time(item)
+      channel_name = item.get('channel') or ""
       writer.writerow([time_str, channel_name, idea, url])
 
       time.sleep(POLITE_DELAY)
 
   print(f"\n✅ Done! Saved to {OUTPUT_FILE}")
+
+def main():
+  # CLI: python scan_channel.py ALL | task_name (basename without .yml)
+  arg = sys.argv[1] if len(sys.argv) > 1 else None
+  tasks_dir = os.path.join("tasks")
+  if not os.path.isdir(tasks_dir):
+    print("❌ tasks/ directory not found")
+    return
+
+  task_files = []
+  if arg and arg.upper() == "ALL":
+    for name in os.listdir(tasks_dir):
+      if name.lower().endswith('.yml') and not name.startswith('.'):
+        task_files.append(os.path.join(tasks_dir, name))
+  elif arg:
+    candidate = os.path.join(tasks_dir, f"{arg}.yml")
+    if os.path.exists(candidate):
+      task_files.append(candidate)
+    else:
+      print(f"❌ Task '{arg}' not found in tasks/")
+      return
+  else:
+    print("❌ Missing argument. Usage: python scan_channel.py ALL | task_name")
+    return
+
+  for tf in task_files:
+    task = load_task_file(tf)
+    if not task:
+      print(f"❌ Skipping invalid task file: {tf}")
+      continue
+    print(f"\n=== Processing task: {os.path.basename(tf)} ===")
+    process_task(task, os.path.basename(tf))
 
 if __name__ == "__main__":
   main()
