@@ -26,18 +26,21 @@ try:
 except Exception:
   keys = {}
 
-CHANNEL_URL    = cfg.get("youtube", {}).get("channel_url", "https://www.youtube.com/@starterstory/videos")
-OUTPUT_FILE    = cfg.get("run", {}).get("output_file", "starterstory_ideas.csv")
-MAX_VIDEOS     = int(cfg.get("run", {}).get("max_videos", 100))
-SKIP_PROCESSED = bool(cfg.get("run", {}).get("skip_processed", True))
-POLITE_DELAY   = int(cfg.get("run", {}).get("polite_delay_sec", 1))
-DEBUG_MODE     = bool(cfg.get("run", {}).get("debug", False))
-USE_YTDLP      = bool(cfg.get("run", {}).get("use_ytdlp_fallback", False))
-PROMPT_TEMPLATE = cfg.get("run", {}).get("prompt")
+CHANNEL_URL     = cfg["youtube"]["channel_url"]
+OUTPUT_FILE     = cfg["run"]["output_file"]
+MAX_VIDEOS      = int(cfg["run"]["max_videos"])
+SKIP_PROCESSED  = bool(cfg["run"]["skip_processed"])
+POLITE_DELAY    = int(cfg["run"]["polite_delay_sec"]) 
+DEBUG_MODE      = bool(cfg["run"]["debug"]) 
+USE_YTDLP       = bool(cfg["run"]["use_ytdlp_fallback"]) 
+PROMPT_TEMPLATE = cfg["run"]["prompt"]
 
-LLM_PROVIDER = (cfg.get("llm", {}).get("provider") or "gemini").lower()
-LLM_MODEL    = cfg.get("llm", {}).get("model", "gemini-1.5-flash")
-LLM_KEY      = os.getenv("YT_SCANNER_API_KEY") or ((keys.get("llm") if isinstance(keys, dict) else None) or cfg.get("llm", {}).get("api_key"))
+LLM_PROVIDER = cfg["llm"]["provider"].lower()
+LLM_MODEL    = cfg["llm"]["model"]
+_llm_key_env    = os.getenv("YT_SCANNER_API_KEY")
+_llm_key_file   = keys.get("llm") if isinstance(keys, dict) else None
+_llm_key_legacy = cfg.get("llm", {}).get("api_key")
+LLM_KEY         = _llm_key_env or _llm_key_file or _llm_key_legacy
 
 # === INIT ===
 if LLM_PROVIDER == "gemini":
@@ -55,12 +58,10 @@ def fetch_video_ids_via_ytdlp(limit=100):
     if DEBUG_MODE:
       print("[debug] yt-dlp not installed; cannot use fallback")
     return []
-  urls_to_try = []
-  if CHANNEL_URL:
-    # try both handle page and without /videos
-    urls_to_try.append(CHANNEL_URL)
-    if CHANNEL_URL.endswith('/videos'):
-      urls_to_try.append(CHANNEL_URL.rsplit('/videos', 1)[0])
+  urls_to_try = [CHANNEL_URL]
+  # try both handle page and without /videos
+  if CHANNEL_URL.endswith('/videos'):
+    urls_to_try.append(CHANNEL_URL.rsplit('/videos', 1)[0])
   ydl_opts = {
     'quiet': True,
     'skip_download': True,
@@ -226,11 +227,10 @@ def get_transcript_via_ytdlp(video_id):
 
 def extract_business_idea(transcript):
   """Extract short business idea (2–8 words) using Gemini."""
-  if PROMPT_TEMPLATE:
-    if "{transcript}" in PROMPT_TEMPLATE:
-      prompt = PROMPT_TEMPLATE.replace("{transcript}", transcript)
-    else:
-      prompt = f"{PROMPT_TEMPLATE}\nTranscript:\n\n{transcript}"
+  if "{transcript}" in PROMPT_TEMPLATE:
+    prompt = PROMPT_TEMPLATE.replace("{transcript}", transcript)
+  else:
+    prompt = f"{PROMPT_TEMPLATE}\nTranscript:\n\n{transcript}"
   try:
     response = model.generate_content(prompt)
     return response.text.strip().replace("\n", " ")

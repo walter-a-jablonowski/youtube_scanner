@@ -1,9 +1,11 @@
 llm:
+
   provider: gemini
   model:    gemini-2.5-flash
   # model:  gemini-2.5-flash-lite
 
 youtube:
+
   channel_url: https://www.youtube.com/@starterstory/videos
   # If you want to use the YouTube Data API in second script
   # use_api: false
@@ -21,6 +23,7 @@ run:
     Transcript:
 
     {transcript}
+
   output_file:         starterstory_ideas.csv
   max_videos:          1     # per run
   skip_processed:      true  # kkip videos already present in the output CSV
