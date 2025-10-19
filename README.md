@@ -23,29 +23,6 @@ A simple script to scan a YouTube channel for videos, fetch available transcript
 - Update config and api_keys.yml
 
 
-## Alternative tools
-
-recommended: yt-dlp  +  youtube-transcript-api  +  Gemini
-
-used:
-
-- youtube-transcript-api	Fetch transcripts directly (Python lib only)
-- yt-dlp
-
-old was: youtube-dl (lassic predecessor of yt-dlp)
-
-alternatives:
-
-- command line
-  - ytsearch / yt-dlp search mode: While technically part of yt-dlp,
-    can search without API keys
-  - yt-dlt (lightweight alternative)
-
-- py only
-  - scrapetube	Fetch all video metadata (no API key)
-  - pytube	Download videos or get metadata
-
-
 ## License
 
 MIT, please respect youtibe terms of use
