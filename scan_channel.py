@@ -320,7 +320,7 @@ def process_task(task, task_name):
   if SKIP_PROCESSED and os.path.exists(OUTPUT_FILE):
     try:
       with open(OUTPUT_FILE, "r", newline="", encoding="utf-8") as rf:
-        reader = csv.reader(rf)
+        reader = csv.reader(rf, delimiter=';')
         next(reader, None)
         for row in reader:
           if row:
@@ -357,7 +357,7 @@ def process_task(task, task_name):
       pass
 
   with open(OUTPUT_FILE, "a", newline="", encoding="utf-8") as f:
-    writer = csv.writer(f)
+    writer = csv.writer(f, delimiter=';')
     if not file_exists or file_empty:
       writer.writerow(["Time", "Channel", "Summary", "Video URL"])
 
@@ -391,7 +391,8 @@ def process_task(task, task_name):
       print(f"  ✅ Idea: {idea}")
       time_str = _format_time(item)
       channel_name = item.get('channel') or ""
-      writer.writerow([time_str, channel_name, idea, url])
+      summary = idea.replace(';', ',')
+      writer.writerow([time_str, channel_name, summary, url])
 
       time.sleep(POLITE_DELAY)
 
