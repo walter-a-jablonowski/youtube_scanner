@@ -53,7 +53,10 @@ else:
 
 # === FUNCTIONS ===
 def fetch_video_ids_via_ytdlp(limit=100):
-  """Use yt-dlp to extract video IDs from channel. Requires yt-dlp."""
+  """Use yt-dlp to extract videos with minimal metadata. Requires yt-dlp.
+
+  Returns a list of dicts: {id, upload_date, timestamp, channel}
+  """
   if yt_dlp is None:
     if DEBUG_MODE:
       print("[debug] yt-dlp not installed; cannot use fallback")
@@ -70,7 +73,7 @@ def fetch_video_ids_via_ytdlp(limit=100):
     'playlistend': limit,
     'extractor_args': {'youtube': {'lang': ['en']}}
   }
-  ids = []
+  items = []
   seen = set()
   with yt_dlp.YoutubeDL(ydl_opts) as ydl:
     for u in urls_to_try:
@@ -79,20 +82,42 @@ def fetch_video_ids_via_ytdlp(limit=100):
         entries = info.get('entries') or []
         for e in entries:
           vid = (e.get('id') or '').strip()
-          if vid and vid not in seen:
-            ids.append(vid)
-            seen.add(vid)
-          if len(ids) >= limit:
+          if not vid or vid in seen:
+            continue
+          seen.add(vid)
+          # Metadata may vary in flat mode
+          upload_date = e.get('upload_date')  # YYYYMMDD if present
+          ts = e.get('timestamp') or e.get('release_timestamp')
+          channel_name = e.get('channel') or e.get('uploader')
+          item = {
+            'id': vid,
+            'upload_date': upload_date,
+            'timestamp': ts,
+            'channel': channel_name,
+          }
+          # Enrich missing fields with a per-video metadata call
+          if not (item['timestamp'] or item['upload_date']) or not item['channel']:
+            try:
+              vinfo = ydl.extract_info(f"https://www.youtube.com/watch?v={vid}", download=False)
+              item['upload_date'] = item['upload_date'] or vinfo.get('upload_date')
+              item['timestamp']   = item['timestamp'] or vinfo.get('timestamp') or vinfo.get('release_timestamp')
+              item['channel']     = item['channel'] or vinfo.get('channel') or vinfo.get('uploader')
+            except Exception as ve:
+              if DEBUG_MODE:
+                print(f"[debug] enrich failed for {vid}: {ve}")
+              pass
+          items.append(item)
+          if len(items) >= limit:
             break
         if DEBUG_MODE:
-          print(f"[debug] yt-dlp extracted {len(entries)} entries from {u}; collected {len(ids)} unique IDs")
-        if ids:
+          print(f"[debug] yt-dlp extracted {len(entries)} entries from {u}; collected {len(items)} unique IDs")
+        if items:
           break
       except Exception as e:
         if DEBUG_MODE:
           print(f"[debug] yt-dlp extract failed for {u}: {e}")
         continue
-  return ids[:limit]
+  return items[:limit]
 
 def get_transcript(video_id):
   """Fetch transcript text with best effort (manual/en, generated/en, or translate to en), with retries."""
@@ -276,13 +301,26 @@ def main():
     except Exception:
       file_empty = False
 
+  def _format_time(item):
+    try:
+      if item.get('timestamp'):
+        # seconds since epoch -> YYYY-MM-DD HH:MM
+        return time.strftime("%Y-%m-%d %H:%M", time.gmtime(int(item['timestamp'])))
+      d = item.get('upload_date')
+      if d and len(d) == 8:
+        return f"{d[0:4]}-{d[4:6]}-{d[6:8]}"
+    except Exception:
+      pass
+    return ""
+
   with open(OUTPUT_FILE, "a", newline="", encoding="utf-8") as f:
     writer = csv.writer(f)
     if not file_exists or file_empty:
-      writer.writerow(["Video URL", "Summary"])
+      writer.writerow(["Time", "Channel", "Summary", "Video URL"])
 
     total = len(video_ids)
-    for i, vid in enumerate(video_ids, 1):
+    for i, item in enumerate(video_ids, 1):
+      vid = item['id'] if isinstance(item, dict) else item
       url = f"https://www.youtube.com/watch?v={vid}"
       if url in processed_urls:
         print(f"\n[{i}/{total}] Skipping already processed {url}")
@@ -292,19 +330,25 @@ def main():
       transcript = get_transcript(vid)
       if not transcript:
         print("  ❌ No transcript found, writing n/a.")
-        writer.writerow([url, "n/a"])  # mark as processed with n/a
+        time_str = _format_time(item) if isinstance(item, dict) else ""
+        channel_name = (item.get('channel') or "") if isinstance(item, dict) else ""
+        writer.writerow([time_str, channel_name, "n/a", url])  # mark as processed with n/a
         time.sleep(POLITE_DELAY)
         continue
 
       idea = extract_business_idea(transcript)
       if not idea:
         print("  ⚠️ No idea extracted, writing n/a.")
-        writer.writerow([url, "n/a"])  # mark as processed with n/a
+        time_str = _format_time(item) if isinstance(item, dict) else ""
+        channel_name = (item.get('channel') or "") if isinstance(item, dict) else ""
+        writer.writerow([time_str, channel_name, "n/a", url])  # mark as processed with n/a
         time.sleep(POLITE_DELAY)
         continue
 
       print(f"  ✅ Idea: {idea}")
-      writer.writerow([url, idea])
+      time_str = _format_time(item) if isinstance(item, dict) else ""
+      channel_name = (item.get('channel') or "") if isinstance(item, dict) else ""
+      writer.writerow([time_str, channel_name, idea, url])
 
       time.sleep(POLITE_DELAY)
 
