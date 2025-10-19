@@ -16,14 +16,17 @@ A simple script to scan a YouTube channel for videos, fetch available transcript
 
 ## Installation
 
-- Python 3.9+
+- **Python** 3.9+
   ```bash
   pip install google-generativeai youtube-transcript-api requests pyyaml
   python -m pip install yt-dlp
   ```
-- Update config.yml
-- API key
-  - set in api_keys.yml
+- **Update config.yml**
+- **API key**
+  - set in api_keys.yml (gitignored)
+    ```yml
+    llm: "AIzaSyA6IQSvlcGJAUzh98aaikkwmp7tq35QAhw"
+    ```
   - or env (priority)
     ```bash
 
@@ -36,7 +39,7 @@ A simple script to scan a YouTube channel for videos, fetch available transcript
     # powershell: [System.Environment]::SetEnvironmentVariable("YT_SCANNER_API_KEY", "your_api_key_here", "Machine")
     # restert terminal  echo $env:YT_SCANNER_API_KEY  echo %YT_SCANNER_API_KEY%
     ```
-- Define task: see tasks/_sample.yml
+- **Define task:** see tasks/_sample.yml
 
 
 ## Run
