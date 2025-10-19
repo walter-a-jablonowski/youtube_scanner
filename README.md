@@ -25,7 +25,7 @@ A simple script to scan a YouTube channel for videos, fetch available transcript
 - **API key**
   - set in api_keys.yml (gitignored)
     ```yml
-    llm: "AIzaSyA6IQSvlcGJAUzh98aaikkwmp7tq35QAhw"
+    llm: "MY_API_KEY"
     ```
   - or env (priority)
     ```bash
