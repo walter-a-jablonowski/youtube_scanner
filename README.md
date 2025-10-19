@@ -49,6 +49,16 @@ python scan_channels.py task_name
 Warnings can be ignored for transcript-only usage (are from yt-dlp)
 
 
+## Output sample
+
+```
+Time,Channel,Summary,Video URL
+2025-10-16 17:00;Some channel;"LLM summary...";https://www.youtube.com/watch?v=...
+```
+
+Delimiter must be ; LLM might use comma, if it uses the delimiter it will be replaced.
+
+
 ## License
 
 MIT, please respect youtibe terms of use
