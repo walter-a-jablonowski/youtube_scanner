@@ -1,0 +1,17 @@
+type: scan_channel
+
+prompt: |
+  Summarize the main business idea mentioned in this YouTube transcript.
+  Respond with only a few words (max 8 words).
+  Transcript:
+
+  {transcript}
+
+output_file:      output/sample.csv
+max_videos:       1     # per run
+skip_processed:   true  # skip videos already present in the output CSV
+polite_delay_sec: 1     # polite delay between requests (seconds)
+
+channels:
+  starterstory:
+    url: https://www.youtube.com/@my_channel/videos

@@ -2,6 +2,6 @@ desktop.ini
 youtube.code-workspace
 api_keys.yml
 tasks/**
-!tasks/.gitkeep
+!tasks/_sample.yml
 output/**
 !output/.gitkeep
