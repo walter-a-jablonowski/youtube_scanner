@@ -27,7 +27,8 @@ A simple script to scan a YouTube channel for videos, fetch available transcript
   - or env (priority)
     ```bash
 
-    set YT_SCANNER_API_KEY=your_api_key_here  # powershell: $env:YT_SCANNER_API_KEY="your_api_key_here"
+    set YT_SCANNER_API_KEY=your_api_key_here
+    # powershell: $env:YT_SCANNER_API_KEY="your_api_key_here"
 
     # or permanent
 
