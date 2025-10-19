@@ -13,9 +13,14 @@ youtube:
 run:
 
   debug: true
-
   use_ytdlp_fallback: true   # or will use YouTubeTranscriptApi
 
+  prompt: |
+    Summarize the main business idea mentioned in this YouTube transcript.
+    Respond with only a few words (max 8 words).
+    Transcript:
+
+    {transcript}
   output_file:         starterstory_ideas.csv
   max_videos:          1     # per run
   skip_processed:      true  # kkip videos already present in the output CSV

@@ -33,6 +33,7 @@ SKIP_PROCESSED = bool(cfg.get("run", {}).get("skip_processed", True))
 POLITE_DELAY   = int(cfg.get("run", {}).get("polite_delay_sec", 1))
 DEBUG_MODE     = bool(cfg.get("run", {}).get("debug", False))
 USE_YTDLP      = bool(cfg.get("run", {}).get("use_ytdlp_fallback", False))
+PROMPT_TEMPLATE = cfg.get("run", {}).get("prompt")
 
 LLM_PROVIDER = (cfg.get("llm", {}).get("provider") or "gemini").lower()
 LLM_MODEL    = cfg.get("llm", {}).get("model", "gemini-1.5-flash")
@@ -225,11 +226,11 @@ def get_transcript_via_ytdlp(video_id):
 
 def extract_business_idea(transcript):
   """Extract short business idea (2–8 words) using Gemini."""
-  prompt = (
-    "Summarize the main business idea mentioned in this YouTube transcript. "
-    "Respond with only a few words (max 8 words). "
-    "Transcript:\n\n" + transcript
-  )
+  if PROMPT_TEMPLATE:
+    if "{transcript}" in PROMPT_TEMPLATE:
+      prompt = PROMPT_TEMPLATE.replace("{transcript}", transcript)
+    else:
+      prompt = f"{PROMPT_TEMPLATE}\nTranscript:\n\n{transcript}"
   try:
     response = model.generate_content(prompt)
     return response.text.strip().replace("\n", " ")
