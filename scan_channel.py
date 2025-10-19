@@ -20,6 +20,13 @@ CONFIG_PATH = "config.yml"
 with open(CONFIG_PATH, "r", encoding="utf-8") as cf:
   cfg = yaml.safe_load(cf) or {}
 
+API_KEYS_PATH = "api_keys.yml"
+try:
+  with open(API_KEYS_PATH, "r", encoding="utf-8") as kf:
+    keys = yaml.safe_load(kf) or {}
+except Exception:
+  keys = {}
+
 CHANNEL_URL    = cfg.get("youtube", {}).get("channel_url", "https://www.youtube.com/@starterstory/videos")
 OUTPUT_FILE    = cfg.get("run", {}).get("output_file", "starterstory_ideas.csv")
 MAX_VIDEOS     = int(cfg.get("run", {}).get("max_videos", 100))
@@ -30,12 +37,12 @@ USE_YTDLP      = bool(cfg.get("run", {}).get("use_ytdlp_fallback", False))
 
 LLM_PROVIDER = (cfg.get("llm", {}).get("provider") or "gemini").lower()
 LLM_MODEL    = cfg.get("llm", {}).get("model", "gemini-1.5-flash")
-LLM_KEY      = cfg.get("llm", {}).get("api_key")
+LLM_KEY      = (keys.get("llm") if isinstance(keys, dict) else None) or cfg.get("llm", {}).get("api_key")
 
 # === INIT ===
 if LLM_PROVIDER == "gemini":
   if not LLM_KEY:
-    raise SystemExit("❌ Please set a Gemini API key in config.llm.api_key (YAML)")
+    raise SystemExit("❌ Please set a Gemini API key in api_keys.yml key 'llm' (or legacy config.llm.api_key)")
   genai.configure(api_key=LLM_KEY)
   model = genai.GenerativeModel(LLM_MODEL)
 else:
