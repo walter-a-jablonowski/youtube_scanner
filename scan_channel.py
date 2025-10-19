@@ -278,7 +278,7 @@ def main():
   with open(OUTPUT_FILE, "a", newline="", encoding="utf-8") as f:
     writer = csv.writer(f)
     if not file_exists or file_empty:
-      writer.writerow(["Video URL", "Business Idea"])
+      writer.writerow(["Video URL", "Summary"])
 
     total = len(video_ids)
     for i, vid in enumerate(video_ids, 1):
