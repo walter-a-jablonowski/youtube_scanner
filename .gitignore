@@ -1,4 +1,6 @@
 desktop.ini
 youtube.code-workspace
 api_keys.yml
+tasks/**
+!tasks/.gitkeep
 starterstory_ideas.csv
