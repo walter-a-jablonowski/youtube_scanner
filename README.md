@@ -23,7 +23,7 @@ A simple script to scan a YouTube channel for videos, fetch available transcript
   ```
 - Update config.yml
 - API key
-  - set in apu_keys.yml
+  - set in api_keys.yml
   - or env (priority)
     ```bash
 
