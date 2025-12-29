@@ -8,7 +8,7 @@ import tempfile
 import yaml
 import sys
 from youtube_transcript_api import YouTubeTranscriptApi, TranscriptsDisabled, NoTranscriptFound, CouldNotRetrieveTranscript
-import google.generativeai as genai
+from google import genai
 
 try:
   import yt_dlp
@@ -57,8 +57,7 @@ LLM_KEY         = _llm_key_env or _llm_key_file or _llm_key_legacy
 if LLM_PROVIDER == "gemini":
   if not LLM_KEY:
     raise SystemExit("❌ Missing API key. Set env YT_SCANNER_API_KEY or api_keys.yml key 'llm' (or legacy config.llm.api_key)")
-  genai.configure(api_key=LLM_KEY)
-  model = genai.GenerativeModel(LLM_MODEL)
+  client = genai.Client(api_key=LLM_KEY)
 else:
   raise SystemExit(f"❌ Unsupported LLM provider: {LLM_PROVIDER}")
 
@@ -271,7 +270,10 @@ def extract_summary(transcript):
   else:
     prompt = f"{PROMPT_TEMPLATE}\nTranscript:\n\n{transcript}"
   try:
-    response = model.generate_content(prompt)
+    response = client.models.generate_content(
+      model=LLM_MODEL,
+      contents=prompt
+    )
     return response.text.strip().replace("\n", " ")
   except Exception as e:
     print("⚠️ Gemini error:", e)

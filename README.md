@@ -18,6 +18,8 @@ A simple script to scan a YouTube channel for videos, fetch available transcript
 
 - **Python** 3.9+
   ```bash
+  pip install -r requirements.txt
+  # or
   pip install google-generativeai youtube-transcript-api requests pyyaml
   python -m pip install yt-dlp
   ```
