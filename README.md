@@ -45,7 +45,7 @@ A simple script to scan a YouTube channel for videos, fetch available transcript
 ## Run
 
 ```
-python scan_channels.py ALL
+python scan_channels.py ALL        # files with "." or "_" in front are excluded
 python scan_channels.py task_name
 ```
 

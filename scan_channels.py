@@ -409,7 +409,7 @@ def main():
   task_files = []
   if arg and arg.upper() == "ALL":
     for name in os.listdir(tasks_dir):
-      if name.lower().endswith('.yml') and not name.startswith('.'):
+      if name.lower().endswith('.yml') and not name.startswith('.') and not name.startswith('_'):
         task_files.append(os.path.join(tasks_dir, name))
   elif arg:
     candidate = os.path.join(tasks_dir, f"{arg}.yml")
