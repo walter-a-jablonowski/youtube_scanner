@@ -8,6 +8,11 @@ tasks:
     type:        save_transcript
     output_file: "{CHANNEL_NAME}/{ENTRY_ID}/original.txt"
 
+  - name:        plain_text
+    type:        save_transcript_plain
+    input:       "transcript"
+    output_file: "{CHANNEL_NAME}/{ENTRY_ID}/original_plain.txt"
+
   - name:        video_summary
     type:        prompt
     output_file: summary.md
@@ -26,3 +31,5 @@ polite_delay_sec: 1     # polite delay between requests (seconds)
 channels:
   starterstory:
     url: https://www.youtube.com/@my_channel/videos
+
+version: 1

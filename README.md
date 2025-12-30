@@ -56,18 +56,6 @@ python scan_channels.py task_name
 Warnings can be ignored for transcript-only usage (are from yt-dlp)
 
 
-### log.csv format
-
-```
-Channel;Date;Title;State;Video URL;Folder
-Channel Name;25-10-16;Video Title;;https://www.youtube.com/watch?v=...;Channel Name/25-10-16__Video_Title__VIDEO_ID
-```
-
-- **ENTRY_ID format**: `YY-MM-DD__TITLE__VID_ID`
-  - `YY-MM-DD`: Upload date (2-digit year)
-  - `TITLE`: First 11 chars of video title (non-alphanumeric replaced with `_`)
-  - `VID_ID`: YouTube video ID
-
 ### Task Configuration
 
 see `tasks/_sample.yml`
@@ -85,6 +73,18 @@ output/
         original.txt                           # transcript
     summary.md                                 # appended summaries
 ```
+
+### log.csv format
+
+```
+Channel;Date;Title;State;Video URL;Folder
+Channel Name;25-10-16;Video Title;;https://www.youtube.com/watch?v=...;Channel Name/25-10-16__Video_Title__VIDEO_ID
+```
+
+- **ENTRY_ID format**: `YY-MM-DD__TITLE__VID_ID`
+  - `YY-MM-DD`: Upload date (2-digit year)
+  - `TITLE`: First 11 chars of video title (non-alphanumeric replaced with `_`)
+  - `VID_ID`: YouTube video ID
 
 ## License
 

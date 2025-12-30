@@ -295,6 +295,31 @@ def execute_prompt_task(prompt_template, variables):
     print(f"⚠️ LLM error: {e}")
     return None
 
+def extract_plain_text(transcript):
+  """Extract plain text from transcript by removing timestamps and formatting tags."""
+  if not transcript:
+    return ""
+  
+  lines = transcript.split('\n')
+  plain_lines = []
+  
+  for line in lines:
+    line = line.strip()
+    if not line:
+      continue
+    # Remove common transcript formatting patterns
+    # Remove timestamps like [00:00:00] or 00:00:00 or <00:00:00>
+    line = re.sub(r'[\[<]?\d{1,2}:\d{2}(?::\d{2})?[\]>]?', '', line)
+    # Remove speaker tags like "Speaker:" or "[Speaker]"
+    line = re.sub(r'^[\[<]?[A-Za-z\s]+[\]>]?:', '', line)
+    # Remove XML-like tags
+    line = re.sub(r'<[^>]+>', '', line)
+    line = line.strip()
+    if line:
+      plain_lines.append(line)
+  
+  return ' '.join(plain_lines)
+
 def write_output_file(file_path, content, action):
   """Write content to file with specified action (overwrite or append)."""
   os.makedirs(os.path.dirname(file_path), exist_ok=True)
@@ -323,6 +348,21 @@ def process_task(task_config, task_name):
   max_videos = int(task_config.get("max_videos", 100))
   skip_processed = bool(task_config.get("skip_processed", True))
   polite_delay = int(task_config.get("polite_delay_sec", 1))
+    
+  # Create -this.yml file in output folder if it doesn't exist
+  task_output_folder = os.path.join(base_folder, task_name.replace('.yml', ''))
+  this_yml_path = os.path.join(task_output_folder, '-this.yml')
+  version = task_config.get("version", "unknown")
+  
+  if not os.path.exists(this_yml_path):
+    try:
+      os.makedirs(task_output_folder, exist_ok=True)
+      with open(this_yml_path, 'w', encoding='utf-8') as f:
+        yaml.dump({'version': version}, f, default_flow_style=False, allow_unicode=True)
+      print(f"📝 Created task config: {this_yml_path} (version: {version})")
+    except Exception as e:
+      if DEBUG_MODE:
+        print(f"[debug] Failed to create -this.yml: {e}")
   
   # Build channels from task
   channels = []  # list of (label, url)
@@ -445,6 +485,15 @@ def process_task(task_config, task_name):
           write_output_file(full_path, transcript, action)
           task_results[task_task_name] = transcript
           print(f"  💾 Saved transcript to {full_path}")
+        
+        elif task_type == "save_transcript_plain":
+          # Extract plain text from input and save
+          input_name = task_def.get("input", "transcript")
+          input_text = variables.get(input_name, "")
+          plain_text = extract_plain_text(input_text)
+          write_output_file(full_path, plain_text, action)
+          task_results[task_task_name] = plain_text
+          print(f"  💾 Saved plain text to {full_path}")
         
         elif task_type == "prompt":
           # Execute prompt with LLM
