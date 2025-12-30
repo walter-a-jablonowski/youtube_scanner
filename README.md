@@ -1,18 +1,20 @@
 # YouTube Scanner
 
-A simple script to scan a YouTube channel for videos, fetch available transcripts, and extract a short summary per video using an LLM.
+A script to scan YouTube channels for videos, fetch transcripts, and process them with multiple tasks (save transcripts, generate summaries, etc.) using an LLM.
 
-- Video discovery and summarization
+- Video discovery and processing
 
-  - Discovers video IDs via yt-dlp from `youtube.channel_url` (no YouTube Data API)
+  - Discovers video IDs via yt-dlp from channel URLs (no YouTube Data API)
   - Retrieves captions via `youtube_transcript_api`, with yt-dlp `.vtt` subtitle fallback
-  - Summarizes a short idea with your configured LLM model
-  - If a transcript is unavailable (private/restricted/no captions), the script writes `n/a`
+  - Processes videos through multiple tasks (save transcript, LLM prompts, etc.)
+  - Creates organized output folders per video with unique ENTRY_ID
+  - If a transcript is unavailable (private/restricted/no captions), the video is skipped
 
 - Logic
 
-  - The first run creates/appends to the CSV defined in `run.output_file`
-  - Subsequent runs will skip URLs already present in the CSV
+  - Each task creates a `log.csv` file tracking processed videos
+  - Subsequent runs skip URLs already present in the log
+  - Multiple output files per video based on task configuration
 
 ## Installation
 
@@ -41,7 +43,7 @@ A simple script to scan a YouTube channel for videos, fetch available transcript
     # powershell: [System.Environment]::SetEnvironmentVariable("YT_SCANNER_API_KEY", "your_api_key_here", "Machine")
     # restert terminal  echo $env:YT_SCANNER_API_KEY  echo %YT_SCANNER_API_KEY%
     ```
-- **Define task:** see tasks/_sample.yml
+- **Define task:** see `tasks/_sample.yml` for the new multi-output structure
 
 
 ## Run
@@ -54,16 +56,36 @@ python scan_channels.py task_name
 Warnings can be ignored for transcript-only usage (are from yt-dlp)
 
 
-## Output sample
+### log.csv format
 
 ```
-Time,Channel,Summary,Video URL
-2025-10-16 17:00;Some channel;"LLM summary...";https://www.youtube.com/watch?v=...
+Channel;Date;Title;State;Video URL;Folder
+Channel Name;25-10-16;Video Title;;https://www.youtube.com/watch?v=...;Channel Name/25-10-16__Video_Title__VIDEO_ID
 ```
 
-Delimiter must be ; LLM might use comma, if it uses the delimiter it will be replaced.
+- **ENTRY_ID format**: `YY-MM-DD__TITLE__VID_ID`
+  - `YY-MM-DD`: Upload date (2-digit year)
+  - `TITLE`: First 11 chars of video title (non-alphanumeric replaced with `_`)
+  - `VID_ID`: YouTube video ID
 
+### Task Configuration
+
+see `tasks/_sample.yml`
+
+Sample output structure
+
+Each task creates the following structure:
+
+```
+output/
+  TASK_NAME/
+    log.csv                                    # tracking file
+    CHANNEL_NAME/
+      ENTRY_ID/                                # YY-MM-DD__TITLE__VID_ID
+        original.txt                           # transcript
+    summary.md                                 # appended summaries
+```
 
 ## License
 
-MIT, please respect youtibe terms of use
+MIT, please respect youtube terms of use

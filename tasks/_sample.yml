@@ -1,13 +1,24 @@
 type: scan_channel
 
-prompt: |
-  Summarize the main business idea mentioned in this YouTube transcript.
-  Respond with only a few words (max 8 words).
-  Transcript:
+baseFolder: "output"
 
-  {transcript}
+tasks:
 
-output_file:      output/sample.csv
+  - name:        transcript
+    type:        save_transcript
+    output_file: "{CHANNEL_NAME}/{ENTRY_ID}/original.txt"
+
+  - name:        video_summary
+    type:        prompt
+    output_file: summary.md
+    action:      append  # or overwrite
+    prompt: |
+      Summarize the main business idea mentioned in this YouTube transcript.
+      Respond with only a few words (max 8 words).
+      Transcript:
+
+      {transcript}
+
 max_videos:       1     # per run
 skip_processed:   true  # skip videos already present in the output CSV
 polite_delay_sec: 1     # polite delay between requests (seconds)

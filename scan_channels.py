@@ -30,12 +30,6 @@ except Exception:
 DEBUG_MODE      = bool(cfg["run"]["debug"]) 
 USE_YTDLP       = bool(cfg["run"]["use_ytdlp_fallback"]) 
 
-# Globals configured per-task at runtime
-PROMPT_TEMPLATE = None
-OUTPUT_FILE     = None
-MAX_VIDEOS      = None
-SKIP_PROCESSED  = None
-POLITE_DELAY    = None
 
 def load_task_file(task_path):
   try:
@@ -65,7 +59,7 @@ else:
 def fetch_video_ids_via_ytdlp(limit=100, channel_url=None, channel_label=None):
   """Use yt-dlp to extract videos with minimal metadata. Requires yt-dlp.
 
-  Returns a list of dicts: {id, upload_date, timestamp, channel}
+  Returns a list of dicts: {id, upload_date, timestamp, channel, title}
   """
   if yt_dlp is None:
     if DEBUG_MODE:
@@ -100,19 +94,22 @@ def fetch_video_ids_via_ytdlp(limit=100, channel_url=None, channel_label=None):
           upload_date = e.get('upload_date')  # YYYYMMDD if present
           ts = e.get('timestamp') or e.get('release_timestamp')
           channel_name = e.get('channel') or e.get('uploader')
+          title = e.get('title') or ''
           item = {
             'id': vid,
             'upload_date': upload_date,
             'timestamp': ts,
             'channel': channel_name,
+            'title': title,
           }
           # Enrich missing fields with a per-video metadata call
-          if not (item['timestamp'] or item['upload_date']) or not item['channel']:
+          if not (item['timestamp'] or item['upload_date']) or not item['channel'] or not item['title']:
             try:
               vinfo = ydl.extract_info(f"https://www.youtube.com/watch?v={vid}", download=False)
               item['upload_date'] = item['upload_date'] or vinfo.get('upload_date')
               item['timestamp']   = item['timestamp'] or vinfo.get('timestamp') or vinfo.get('release_timestamp')
               item['channel']     = item['channel'] or vinfo.get('channel') or vinfo.get('uploader')
+              item['title']       = item['title'] or vinfo.get('title') or ''
             except Exception as ve:
               if DEBUG_MODE:
                 print(f"[debug] enrich failed for {vid}: {ve}")
@@ -263,142 +260,212 @@ def get_transcript_via_ytdlp(video_id):
     except Exception:
       pass
 
-def extract_summary(transcript):
-  """Extract short business idea (2–8 words) using Gemini."""
-  if "{transcript}" in PROMPT_TEMPLATE:
-    prompt = PROMPT_TEMPLATE.replace("{transcript}", transcript)
+def generate_entry_id(upload_date, title, video_id):
+  """Generate ENTRY_ID: YY-MM-DD__TITLE__VID_ID
+  - YY-MM-DD: 2-digit year format
+  - TITLE: first 11 chars after replacing non-alphanumeric with underscore
+  - VID_ID: youtube video id
+  """
+  # Format date as YY-MM-DD
+  if upload_date and len(upload_date) == 8:  # YYYYMMDD
+    date_part = f"{upload_date[2:4]}-{upload_date[4:6]}-{upload_date[6:8]}"
   else:
-    prompt = f"{PROMPT_TEMPLATE}\nTranscript:\n\n{transcript}"
+    date_part = "00-00-00"
+  
+  # Clean title: replace non-alphanumeric with underscore, take first 11 chars
+  clean_title = re.sub(r'[^a-zA-Z0-9]', '_', title or 'untitled')
+  title_part = clean_title[:11]
+  
+  return f"{date_part}__{title_part}__{video_id}"
+
+def execute_prompt_task(prompt_template, variables):
+  """Execute a prompt task using the LLM with variable substitution."""
+  prompt = prompt_template
+  for key, value in variables.items():
+    placeholder = "{" + key + "}"
+    prompt = prompt.replace(placeholder, str(value))
+  
   try:
     response = client.models.generate_content(
       model=LLM_MODEL,
       contents=prompt
     )
-    return response.text.strip().replace("\n", " ")
+    return response.text.strip()
   except Exception as e:
-    print("⚠️ Gemini error:", e)
+    print(f"⚠️ LLM error: {e}")
     return None
 
-# === MAIN ===
-def process_task(task, task_name):
-  global PROMPT_TEMPLATE, OUTPUT_FILE, MAX_VIDEOS, SKIP_PROCESSED, POLITE_DELAY
-  # Configure per-task settings (required)
-  PROMPT_TEMPLATE = task["prompt"]
-  OUTPUT_FILE     = task["output_file"]
-  MAX_VIDEOS      = int(task["max_videos"]) 
-  SKIP_PROCESSED  = bool(task["skip_processed"]) 
-  POLITE_DELAY    = int(task["polite_delay_sec"]) 
+def write_output_file(file_path, content, action):
+  """Write content to file with specified action (overwrite or append)."""
+  os.makedirs(os.path.dirname(file_path), exist_ok=True)
+  
+  if action == "append":
+    with open(file_path, "a", encoding="utf-8") as f:
+      f.write(content + "\n")
+  else:  # overwrite
+    with open(file_path, "w", encoding="utf-8") as f:
+      f.write(content)
 
+def substitute_variables(template, variables):
+  """Replace {VAR} placeholders in template with values from variables dict."""
+  result = template
+  for key, value in variables.items():
+    placeholder = "{" + key + "}"
+    result = result.replace(placeholder, str(value))
+  return result
+
+# === MAIN ===
+def process_task(task_config, task_name):
+  """Process a task with new multi-output structure."""
+  # Extract task settings
+  base_folder = task_config.get("baseFolder", "output")
+  tasks = task_config.get("tasks", [])
+  max_videos = int(task_config.get("max_videos", 100))
+  skip_processed = bool(task_config.get("skip_processed", True))
+  polite_delay = int(task_config.get("polite_delay_sec", 1))
+  
   # Build channels from task
-  CHANNELS = []  # list of (label, url)
-  for label, data in (task.get("channels") or {}).items():
+  channels = []  # list of (label, url)
+  for label, data in (task_config.get("channels") or {}).items():
     url = (data or {}).get("url")
     if url:
-      CHANNELS.append((label, url))
-  if not CHANNELS:
+      channels.append((label, url))
+  
+  if not channels:
     print(f"❌ Task '{task_name}' has no channels configured.")
     return
-
+  
+  if not tasks:
+    print(f"❌ Task '{task_name}' has no tasks configured.")
+    return
+  
   # Discover videos across channels
   all_items = []
   if USE_YTDLP:
     if yt_dlp is None and DEBUG_MODE:
       print("[debug] yt-dlp is not installed; cannot use yt-dlp discovery")
     else:
-      for label, url in CHANNELS:
+      for label, url in channels:
         if DEBUG_MODE:
           print(f"[debug] Discovering channel {label}: {url}")
-        items = fetch_video_ids_via_ytdlp(MAX_VIDEOS, channel_url=url, channel_label=label)
+        items = fetch_video_ids_via_ytdlp(max_videos, channel_url=url, channel_label=label)
         if DEBUG_MODE:
           print(f"[debug] {label}: collected {len(items)} IDs")
         all_items.extend(items)
+  
   if not all_items:
     print("🔎 Found 0 videos via yt-dlp. Enable run.debug for details.")
     print(f"❌ No videos to process for task '{task_name}'.")
     return
-
-  # Read existing processed URLs
+  
+  # Setup log.csv path
+  log_csv_path = os.path.join(base_folder, task_name.replace('.yml', ''), 'log.csv')
+  os.makedirs(os.path.dirname(log_csv_path), exist_ok=True)
+  
+  # Read existing processed URLs from log.csv
   processed_urls = set()
-  if SKIP_PROCESSED and os.path.exists(OUTPUT_FILE):
+  if skip_processed and os.path.exists(log_csv_path):
     try:
-      with open(OUTPUT_FILE, "r", newline="", encoding="utf-8") as rf:
+      with open(log_csv_path, "r", newline="", encoding="utf-8") as rf:
         reader = csv.reader(rf, delimiter=';')
-        next(reader, None)
+        next(reader, None)  # Skip header
         for row in reader:
-          if row:
-            processed_urls.add(row[3])  # Video URL column
+          if len(row) >= 5:
+            processed_urls.add(row[4])  # Video URL column
     except Exception:
       processed_urls = set()
-
-  # Header setup
-  file_exists = os.path.exists(OUTPUT_FILE)
-  file_empty = False
-  if file_exists:
+  
+  # Initialize log.csv if needed
+  log_exists = os.path.exists(log_csv_path)
+  log_empty = False
+  if log_exists:
     try:
-      file_empty = os.path.getsize(OUTPUT_FILE) == 0
+      log_empty = os.path.getsize(log_csv_path) == 0
     except Exception:
-      file_empty = False
-
-  def _format_time(item):
-    try:
-      if item.get('timestamp'):
-        return time.strftime("%Y-%m-%d %H:%M", time.gmtime(int(item['timestamp'])))
-      d = item.get('upload_date')
-      if d and len(d) == 8:
-        return f"{d[0:4]}-{d[4:6]}-{d[6:8]}"
-    except Exception:
-      pass
-    return ""
-
-  # Ensure output directory exists
-  out_dir = os.path.dirname(OUTPUT_FILE)
-  if out_dir:
-    try:
-      os.makedirs(out_dir, exist_ok=True)
-    except Exception:
-      pass
-
-  with open(OUTPUT_FILE, "a", newline="", encoding="utf-8") as f:
-    writer = csv.writer(f, delimiter=';')
-    if not file_exists or file_empty:
-      writer.writerow(["Time", "Channel", "Summary", "Video URL"])
-
+      log_empty = False
+  
+  with open(log_csv_path, "a", newline="", encoding="utf-8") as log_f:
+    log_writer = csv.writer(log_f, delimiter=';')
+    if not log_exists or log_empty:
+      log_writer.writerow(["Channel", "Date", "Title", "State", "Video URL", "Folder"])
+    
     total = len(all_items)
     for i, item in enumerate(all_items, 1):
       vid = item['id']
       url = f"https://www.youtube.com/watch?v={vid}"
+      
       if url in processed_urls:
         print(f"\n[{i}/{total}] Skipping already processed {url}")
         continue
-
+      
       print(f"\n[{i}/{total}] Processing {url}")
+      
+      # Generate ENTRY_ID
+      upload_date = item.get('upload_date', '')
+      title = item.get('title', '')
+      entry_id = generate_entry_id(upload_date, title, vid)
+      channel_name = item.get('channel') or ''
+      
+      # Format date for log (YY-MM-DD)
+      if upload_date and len(upload_date) == 8:
+        date_str = f"{upload_date[2:4]}-{upload_date[4:6]}-{upload_date[6:8]}"
+      else:
+        date_str = ""
+      
+      # Fetch transcript
       transcript = get_transcript(vid)
       if not transcript:
-        print("  ❌ No transcript found, writing n/a.")
-        time_str = _format_time(item)
-        channel_name = item.get('channel') or ""
-        writer.writerow([time_str, channel_name, "n/a", url])
-        time.sleep(POLITE_DELAY)
+        print("  ❌ No transcript found, skipping.")
+        time.sleep(polite_delay)
         continue
-
-      idea = extract_summary(transcript)
-      if not idea:
-        print("  ⚠️ No idea extracted, writing n/a.")
-        time_str = _format_time(item)
-        channel_name = item.get('channel') or ""
-        writer.writerow([time_str, channel_name, "n/a", url])
-        time.sleep(POLITE_DELAY)
-        continue
-
-      print(f"  ✅ Idea: {idea}")
-      time_str = _format_time(item)
-      channel_name = item.get('channel') or ""
-      summary = idea.replace(';', ',')
-      writer.writerow([time_str, channel_name, summary, url])
-
-      time.sleep(POLITE_DELAY)
-
-  print(f"\n✅ Done! Saved to {OUTPUT_FILE}")
+      
+      # Execute tasks in sequence
+      task_results = {}  # Store results by task name
+      
+      for task_def in tasks:
+        task_type = task_def.get("type")
+        task_task_name = task_def.get("name", "")
+        output_file = task_def.get("output_file", "")
+        action = task_def.get("action", "overwrite")
+        
+        # Build variables for substitution
+        variables = {
+          "CHANNEL_NAME": channel_name,
+          "ENTRY_ID": entry_id,
+          "transcript": transcript,
+        }
+        # Add previous task results
+        variables.update(task_results)
+        
+        # Substitute variables in output_file path
+        full_path = os.path.join(base_folder, task_name.replace('.yml', ''), substitute_variables(output_file, variables))
+        
+        if task_type == "save_transcript":
+          # Save transcript to file
+          write_output_file(full_path, transcript, action)
+          task_results[task_task_name] = transcript
+          print(f"  💾 Saved transcript to {full_path}")
+        
+        elif task_type == "prompt":
+          # Execute prompt with LLM
+          prompt_template = task_def.get("prompt", "")
+          result = execute_prompt_task(prompt_template, variables)
+          
+          if result:
+            write_output_file(full_path, result, action)
+            task_results[task_task_name] = result
+            print(f"  ✅ {task_task_name}: {result[:80]}..." if len(result) > 80 else f"  ✅ {task_task_name}: {result}")
+          else:
+            print(f"  ⚠️ {task_task_name}: Failed to generate result")
+            task_results[task_task_name] = "n/a"
+      
+      # Write to log.csv
+      folder_path = f"{channel_name}/{entry_id}"
+      log_writer.writerow([channel_name, date_str, title, "", url, folder_path])
+      
+      time.sleep(polite_delay)
+  
+  print(f"\n✅ Done! Log saved to {log_csv_path}")
 
 def main():
   # CLI: python scan_channel.py ALL | task_name (basename without .yml)
