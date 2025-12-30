@@ -398,28 +398,7 @@ def process_task(task_config, task_name):
     print(f"❌ Task '{task_name}' has no tasks configured.")
     return
   
-  # Discover videos across channels
-  # Fetch more videos than max_videos to account for already-processed ones
-  fetch_limit = max_videos * 10  # Fetch 10x to ensure we find enough new videos
-  all_items = []
-  if USE_YTDLP:
-    if yt_dlp is None and DEBUG_MODE:
-      print("[debug] yt-dlp is not installed; cannot use yt-dlp discovery")
-    else:
-      for label, url in channels:
-        if DEBUG_MODE:
-          print(f"[debug] Discovering channel {label}: {url}")
-        items = fetch_video_ids_via_ytdlp(fetch_limit, channel_url=url, channel_label=label)
-        if DEBUG_MODE:
-          print(f"[debug] {label}: collected {len(items)} IDs")
-        all_items.extend(items)
-  
-  if not all_items:
-    print("🔎 Found 0 videos via yt-dlp. Enable run.debug for details.")
-    print(f"❌ No videos to process for task '{task_name}'.")
-    return
-  
-  # Setup log.csv path
+  # Setup log.csv path and read processed URLs BEFORE discovery
   log_csv_path = os.path.join(base_folder, task_name.replace('.yml', ''), 'log.csv')
   os.makedirs(os.path.dirname(log_csv_path), exist_ok=True)
   
@@ -435,6 +414,41 @@ def process_task(task_config, task_name):
             processed_urls.add(row[4])  # Video URL column
     except Exception:
       processed_urls = set()
+  
+  # Discover videos across channels with early stopping
+  # Stop fetching when we have enough unprocessed videos
+  target_unprocessed = max_videos * 2  # Fetch 2x to have buffer
+  fetch_limit_per_channel = max_videos * 10  # Max to fetch per channel
+  all_items = []
+  
+  if USE_YTDLP:
+    if yt_dlp is None and DEBUG_MODE:
+      print("[debug] yt-dlp is not installed; cannot use yt-dlp discovery")
+    else:
+      for label, url in channels:
+        if DEBUG_MODE:
+          print(f"[debug] Discovering channel {label}: {url}")
+        
+        items = fetch_video_ids_via_ytdlp(fetch_limit_per_channel, channel_url=url, channel_label=label)
+        all_items.extend(items)
+        
+        # Count unprocessed videos so far
+        unprocessed_count = sum(1 for item in all_items if f"https://www.youtube.com/watch?v={item['id']}" not in processed_urls)
+        
+        if DEBUG_MODE:
+          print(f"[debug] {label}: collected {len(items)} IDs, {unprocessed_count} unprocessed total so far")
+        
+        # Early stopping: if we have enough unprocessed videos, skip remaining channels
+        if unprocessed_count >= target_unprocessed:
+          remaining_channels = len(channels) - (channels.index((label, url)) + 1)
+          if remaining_channels > 0:
+            print(f"⚡ Early stop: Found {unprocessed_count} unprocessed videos (target: {target_unprocessed}), skipping {remaining_channels} remaining channel(s)")
+          break
+  
+  if not all_items:
+    print("🔎 Found 0 videos via yt-dlp. Enable run.debug for details.")
+    print(f"❌ No videos to process for task '{task_name}'.")
+    return
   
   # Initialize log.csv if needed
   log_exists = os.path.exists(log_csv_path)
