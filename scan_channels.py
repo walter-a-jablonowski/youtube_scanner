@@ -63,7 +63,7 @@ def fetch_video_ids_via_ytdlp(limit=100, channel_url=None, channel_label=None):
   """
   if yt_dlp is None:
     if DEBUG_MODE:
-      print("[debug] yt-dlp not installed; cannot use fallback")
+      print("[debug] yt-dlp not installed; can't use fallback")
     return []
   base_url = channel_url
   urls_to_try = [base_url]
@@ -296,29 +296,39 @@ def execute_prompt_task(prompt_template, variables):
     return None
 
 def extract_plain_text(transcript):
-  """Extract plain text from transcript by removing timestamps and formatting tags."""
+  """Extract plain text from transcript by removing timestamps and formatting tags.
+  
+  Handles VTT format like:
+    Kind: captions Language: en
+    <00:00:00.719><c> never</c><00:00:01.120><c> in</c>
+  """
   if not transcript:
     return ""
   
-  lines = transcript.split('\n')
-  plain_lines = []
+  text = transcript
   
-  for line in lines:
-    line = line.strip()
-    if not line:
-      continue
-    # Remove common transcript formatting patterns
-    # Remove timestamps like [00:00:00] or 00:00:00 or <00:00:00>
-    line = re.sub(r'[\[<]?\d{1,2}:\d{2}(?::\d{2})?[\]>]?', '', line)
-    # Remove speaker tags like "Speaker:" or "[Speaker]"
-    line = re.sub(r'^[\[<]?[A-Za-z\s]+[\]>]?:', '', line)
-    # Remove XML-like tags
-    line = re.sub(r'<[^>]+>', '', line)
-    line = line.strip()
-    if line:
-      plain_lines.append(line)
+  # Remove file prefix like "Kind: captions Language: en"
+  text = re.sub(r'^Kind:\s*\w+\s+Language:\s*\w+\s*', '', text, flags=re.MULTILINE)
   
-  return ' '.join(plain_lines)
+  # Remove VTT timestamp tags like <00:00:00.719>
+  text = re.sub(r'<\d{2}:\d{2}:\d{2}\.\d{3}>', '', text)
+  
+  # Remove opening and closing <c> tags
+  text = re.sub(r'</?c>', '', text)
+  
+  # Remove other XML-like tags
+  text = re.sub(r'<[^>]+>', '', text)
+  
+  # Remove standalone timestamps like [00:00:00] or 00:00:00
+  text = re.sub(r'[\[\(]?\d{1,2}:\d{2}(?::\d{2})?(?:\.\d+)?[\]\)]?', '', text)
+  
+  # Remove speaker tags like "Speaker:" or "[Speaker]"
+  text = re.sub(r'^[\[<]?[A-Za-z\s]+[\]>]?:\s*', '', text, flags=re.MULTILINE)
+  
+  # Clean up multiple spaces and newlines
+  text = re.sub(r'\s+', ' ', text)
+  
+  return text.strip()
 
 def write_output_file(file_path, content, action):
   """Write content to file with specified action (overwrite or append)."""
@@ -380,6 +390,8 @@ def process_task(task_config, task_name):
     return
   
   # Discover videos across channels
+  # Fetch more videos than max_videos to account for already-processed ones
+  fetch_limit = max_videos * 10  # Fetch 10x to ensure we find enough new videos
   all_items = []
   if USE_YTDLP:
     if yt_dlp is None and DEBUG_MODE:
@@ -388,7 +400,7 @@ def process_task(task_config, task_name):
       for label, url in channels:
         if DEBUG_MODE:
           print(f"[debug] Discovering channel {label}: {url}")
-        items = fetch_video_ids_via_ytdlp(max_videos, channel_url=url, channel_label=label)
+        items = fetch_video_ids_via_ytdlp(fetch_limit, channel_url=url, channel_label=label)
         if DEBUG_MODE:
           print(f"[debug] {label}: collected {len(items)} IDs")
         all_items.extend(items)
@@ -430,15 +442,23 @@ def process_task(task_config, task_name):
       log_writer.writerow(["Channel", "Date", "Title", "State", "Video URL", "Folder"])
     
     total = len(all_items)
+    processed_count = 0  # Track how many new videos we've processed
+    
     for i, item in enumerate(all_items, 1):
+      # Stop if we've already processed max_videos new videos
+      if processed_count >= max_videos:
+        print(f"\n✅ Reached max_videos limit ({max_videos} new videos processed)")
+        break
+      
       vid = item['id']
       url = f"https://www.youtube.com/watch?v={vid}"
       
       if url in processed_urls:
-        print(f"\n[{i}/{total}] Skipping already processed {url}")
+        if DEBUG_MODE:
+          print(f"\n[{i}/{total}] Skipping already processed {url}")
         continue
       
-      print(f"\n[{i}/{total}] Processing {url}")
+      print(f"\n[{i}/{total}] Processing new video {processed_count + 1}/{max_videos}: {url}")
       
       # Generate ENTRY_ID
       upload_date = item.get('upload_date', '')
@@ -512,6 +532,7 @@ def process_task(task_config, task_name):
       folder_path = f"{channel_name}/{entry_id}"
       log_writer.writerow([channel_name, date_str, title, "", url, folder_path])
       
+      processed_count += 1  # Increment counter for new videos processed
       time.sleep(polite_delay)
   
   print(f"\n✅ Done! Log saved to {log_csv_path}")

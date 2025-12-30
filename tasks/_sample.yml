@@ -24,8 +24,8 @@ tasks:
 
       {transcript}
 
-max_videos:       1     # per run
 skip_processed:   true  # skip videos already present in the output CSV
+max_videos:       1     # per run
 polite_delay_sec: 1     # polite delay between requests (seconds)
 
 channels:
