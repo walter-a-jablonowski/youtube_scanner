@@ -299,8 +299,7 @@ def extract_plain_text(transcript):
   """Extract plain text from transcript by removing timestamps and formatting tags.
   
   Handles VTT format like:
-    Kind: captions Language: en
-    <00:00:00.719><c> never</c><00:00:01.120><c> in</c>
+    Kind: captions Language: en This<00:00:00.719><c> is</c><00:00:01.040><c> text</c>
   """
   if not transcript:
     return ""
@@ -308,27 +307,37 @@ def extract_plain_text(transcript):
   text = transcript
   
   # Remove file prefix like "Kind: captions Language: en"
-  text = re.sub(r'^Kind:\s*\w+\s+Language:\s*\w+\s*', '', text, flags=re.MULTILINE)
+  text = re.sub(r'Kind:\s*\w+\s+Language:\s*\w+\s*', '', text)
   
-  # Remove VTT timestamp tags like <00:00:00.719>
+  # Remove all timestamp+tag combinations like <00:00:00.719><c>
+  # This pattern matches: <HH:MM:SS.mmm><c> or <HH:MM:SS.mmm></c>
+  text = re.sub(r'<\d{2}:\d{2}:\d{2}\.\d{3}></?c>', '', text)
+  
+  # Remove any remaining timestamp tags like <00:00:00.719>
   text = re.sub(r'<\d{2}:\d{2}:\d{2}\.\d{3}>', '', text)
   
-  # Remove opening and closing <c> tags
+  # Remove any remaining <c> or </c> tags
   text = re.sub(r'</?c>', '', text)
   
-  # Remove other XML-like tags
+  # Remove speaker markers like "&gt;&gt;" (HTML encoded) or ">>"
+  text = re.sub(r'&gt;&gt;|&lt;&lt;|>>|<<', '', text)
+  
+  # Remove other XML/HTML entities
+  text = re.sub(r'&[a-zA-Z]+;', '', text)
+  
+  # Remove any other angle bracket tags
   text = re.sub(r'<[^>]+>', '', text)
   
-  # Remove standalone timestamps like [00:00:00] or 00:00:00
+  # Remove standalone timestamps in various formats
   text = re.sub(r'[\[\(]?\d{1,2}:\d{2}(?::\d{2})?(?:\.\d+)?[\]\)]?', '', text)
   
-  # Remove speaker tags like "Speaker:" or "[Speaker]"
-  text = re.sub(r'^[\[<]?[A-Za-z\s]+[\]>]?:\s*', '', text, flags=re.MULTILINE)
-  
-  # Clean up multiple spaces and newlines
+  # Clean up multiple spaces
   text = re.sub(r'\s+', ' ', text)
   
-  return text.strip()
+  # Remove leading/trailing whitespace
+  text = text.strip()
+  
+  return text
 
 def write_output_file(file_path, content, action):
   """Write content to file with specified action (overwrite or append)."""
